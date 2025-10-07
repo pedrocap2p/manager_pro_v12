@@ -13,6 +13,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Users, DollarSign, Tv, AlertCircle, Plus, Search, Edit, Trash2, Eye, Calendar, Phone, LogOut, Settings, Image, Download, Upload, Shield, UserCheck, Crown, Film, Monitor, Trophy, UserPlus, Lock, RefreshCw, Star, AlertTriangle, Clock, Database, Cloud, Server, Link, Globe, ExternalLink, MessageCircle } from 'lucide-react'
 
+// Importar integração com Supabase
+import { SupabaseAPI, initializeTables } from '@/lib/supabase'
+import type { SupabaseUsuario, SupabaseCliente, SupabaseServidor, SupabaseBanner } from '@/lib/supabase'
+
 interface Usuario {
   id: string
   nome: string
@@ -105,16 +109,131 @@ interface JogoFutebol {
   imagemBanner: string
 }
 
-// Sistema de banco de dados universal que funciona em qualquer navegador
+// Funções de conversão entre tipos locais e Supabase
+const converterUsuarioParaSupabase = (usuario: Usuario): SupabaseUsuario => ({
+  id: usuario.id,
+  nome: usuario.nome,
+  email: usuario.email,
+  senha: usuario.senha,
+  tipo: usuario.tipo,
+  ativo: usuario.ativo,
+  data_cadastro: usuario.dataCadastro,
+  ultimo_acesso: usuario.ultimoAcesso
+})
+
+const converterUsuarioDeSupabase = (usuario: SupabaseUsuario): Usuario => ({
+  id: usuario.id,
+  nome: usuario.nome,
+  email: usuario.email,
+  senha: usuario.senha,
+  tipo: usuario.tipo,
+  ativo: usuario.ativo,
+  dataCadastro: usuario.data_cadastro,
+  ultimoAcesso: usuario.ultimo_acesso
+})
+
+const converterClienteParaSupabase = (cliente: Cliente): SupabaseCliente => ({
+  id: cliente.id,
+  nome: cliente.nome,
+  whatsapp: cliente.whatsapp,
+  plano: cliente.plano,
+  status: cliente.status,
+  data_vencimento: cliente.dataVencimento,
+  valor_mensal: cliente.valorMensal,
+  data_ultimo_pagamento: cliente.dataUltimoPagamento,
+  observacoes: cliente.observacoes,
+  data_cadastro: cliente.dataCadastro,
+  usuario_id: cliente.usuarioId
+})
+
+const converterClienteDeSupabase = (cliente: SupabaseCliente): Cliente => ({
+  id: cliente.id,
+  nome: cliente.nome,
+  whatsapp: cliente.whatsapp,
+  plano: cliente.plano,
+  status: cliente.status,
+  dataVencimento: cliente.data_vencimento,
+  valorMensal: cliente.valor_mensal,
+  dataUltimoPagamento: cliente.data_ultimo_pagamento,
+  observacoes: cliente.observacoes,
+  dataCadastro: cliente.data_cadastro,
+  usuarioId: cliente.usuario_id
+})
+
+const converterServidorParaSupabase = (servidor: Servidor): SupabaseServidor => ({
+  id: servidor.id,
+  nome: servidor.nome,
+  link: servidor.link,
+  descricao: servidor.descricao,
+  ativo: servidor.ativo,
+  data_criacao: servidor.dataCriacao,
+  usuario_id: servidor.usuarioId
+})
+
+const converterServidorDeSupabase = (servidor: SupabaseServidor): Servidor => ({
+  id: servidor.id,
+  nome: servidor.nome,
+  link: servidor.link,
+  descricao: servidor.descricao,
+  ativo: servidor.ativo,
+  dataCriacao: servidor.data_criacao,
+  usuarioId: servidor.usuario_id
+})
+
+const converterBannerParaSupabase = (banner: Banner): SupabaseBanner => ({
+  id: banner.id,
+  categoria: banner.categoria,
+  imagem_url: banner.imagemUrl,
+  logo_url: banner.logoUrl,
+  sinopse: banner.sinopse,
+  data_evento: banner.dataEvento,
+  logo_personalizada: banner.logoPersonalizada,
+  posicao_logo: banner.posicaoLogo,
+  data_criacao: banner.dataCriacao,
+  usuario_id: banner.usuarioId
+})
+
+const converterBannerDeSupabase = (banner: SupabaseBanner): Banner => ({
+  id: banner.id,
+  categoria: banner.categoria,
+  imagemUrl: banner.imagem_url,
+  logoUrl: banner.logo_url,
+  sinopse: banner.sinopse,
+  dataEvento: banner.data_evento,
+  logoPersonalizada: banner.logo_personalizada,
+  posicaoLogo: banner.posicao_logo,
+  dataCriacao: banner.data_criacao,
+  usuarioId: banner.usuario_id
+})
+
+// Sistema de banco de dados híbrido (Local + Supabase)
 class DatabaseAPI {
-  // Salvar dados no banco universal (funciona em qualquer navegador)
+  // Salvar dados localmente E no Supabase
   static async salvarDados(tabela: string, dados: any): Promise<boolean> {
     try {
-      // Sistema funciona 100% offline - salvar localmente
+      // Salvar localmente primeiro (backup)
       const dadosExistentes = this.carregarDados(tabela)
       const novosDados = Array.isArray(dadosExistentes) ? [...dadosExistentes, dados] : [dados]
       localStorage.setItem(`db_${tabela}`, JSON.stringify(novosDados))
-      console.log(`✅ Dados salvos localmente: ${tabela}`, dados)
+      
+      // Salvar no Supabase
+      let sucessoSupabase = false
+      switch (tabela) {
+        case 'usuarios':
+          sucessoSupabase = await SupabaseAPI.salvarUsuario(converterUsuarioParaSupabase(dados))
+          break
+        case 'clientes':
+          sucessoSupabase = await SupabaseAPI.salvarCliente(converterClienteParaSupabase(dados))
+          break
+        case 'servidores':
+          sucessoSupabase = await SupabaseAPI.salvarServidor(converterServidorParaSupabase(dados))
+          break
+        case 'banners':
+          sucessoSupabase = await SupabaseAPI.salvarBanner(converterBannerParaSupabase(dados))
+          break
+      }
+
+      console.log(`✅ Dados salvos - Local: ✓ | Supabase: ${sucessoSupabase ? '✓' : '✗'} | Tabela: ${tabela}`)
       return true
     } catch (error) {
       console.error(`❌ Erro ao salvar dados: ${tabela}`, error)
@@ -124,15 +243,30 @@ class DatabaseAPI {
   
   static async atualizarDados(tabela: string, id: string, dados: any): Promise<boolean> {
     try {
-      // Sistema funciona 100% offline - atualizar localmente
+      // Atualizar localmente
       const dadosExistentes = this.carregarDados(tabela)
       if (Array.isArray(dadosExistentes)) {
         const dadosAtualizados = dadosExistentes.map(item => 
           item.id === id ? { ...item, ...dados } : item
         )
         localStorage.setItem(`db_${tabela}`, JSON.stringify(dadosAtualizados))
-        console.log(`✅ Dados atualizados localmente: ${tabela}/${id}`)
       }
+      
+      // Atualizar no Supabase
+      let sucessoSupabase = false
+      switch (tabela) {
+        case 'usuarios':
+          sucessoSupabase = await SupabaseAPI.atualizarUsuario(id, dados)
+          break
+        case 'clientes':
+          sucessoSupabase = await SupabaseAPI.atualizarCliente(id, dados)
+          break
+        case 'servidores':
+          sucessoSupabase = await SupabaseAPI.atualizarServidor(id, dados)
+          break
+      }
+
+      console.log(`✅ Dados atualizados - Local: ✓ | Supabase: ${sucessoSupabase ? '✓' : '✗'} | ${tabela}/${id}`)
       return true
     } catch (error) {
       console.error(`❌ Erro ao atualizar dados: ${tabela}`, error)
@@ -142,12 +276,31 @@ class DatabaseAPI {
   
   static async excluirDados(tabela: string, id: string): Promise<boolean> {
     try {
+      // Excluir localmente
       const dadosExistentes = this.carregarDados(tabela)
       if (Array.isArray(dadosExistentes)) {
         const dadosAtualizados = dadosExistentes.filter(item => item.id !== id)
         localStorage.setItem(`db_${tabela}`, JSON.stringify(dadosAtualizados))
-        console.log(`✅ Dados excluídos localmente: ${tabela}/${id}`)
       }
+      
+      // Excluir do Supabase
+      let sucessoSupabase = false
+      switch (tabela) {
+        case 'usuarios':
+          sucessoSupabase = await SupabaseAPI.excluirUsuario(id)
+          break
+        case 'clientes':
+          sucessoSupabase = await SupabaseAPI.excluirCliente(id)
+          break
+        case 'servidores':
+          sucessoSupabase = await SupabaseAPI.excluirServidor(id)
+          break
+        case 'banners':
+          sucessoSupabase = await SupabaseAPI.excluirBanner(id)
+          break
+      }
+
+      console.log(`✅ Dados excluídos - Local: ✓ | Supabase: ${sucessoSupabase ? '✓' : '✗'} | ${tabela}/${id}`)
       return true
     } catch (error) {
       console.error(`❌ Erro ao excluir dados: ${tabela}`, error)
@@ -167,10 +320,14 @@ class DatabaseAPI {
   
   static async autenticar(email: string, senha: string): Promise<Usuario | null> {
     try {
-      // Sistema funciona 100% offline - verificar dados locais
+      // Tentar autenticar no Supabase primeiro
+      const usuarioSupabase = await SupabaseAPI.autenticar(email, senha)
+      if (usuarioSupabase) {
+        return converterUsuarioDeSupabase(usuarioSupabase)
+      }
+
+      // Fallback para dados locais
       const usuarios = this.carregarDados('usuarios')
-      
-      // Buscar qualquer usuário ativo com as credenciais fornecidas
       const usuario = usuarios.find((u: Usuario) => 
         u.email === email && 
         u.senha === senha && 
@@ -178,13 +335,12 @@ class DatabaseAPI {
       )
       
       if (usuario) {
-        // Atualizar último acesso
         await this.atualizarDados('usuarios', usuario.id, { ultimoAcesso: new Date().toISOString() })
-        console.log(`✅ Login realizado com sucesso: ${usuario.nome} (${usuario.tipo})`)
+        console.log(`✅ Login local realizado: ${usuario.nome}`)
         return usuario
       }
       
-      console.log(`❌ Credenciais inválidas ou usuário inativo: ${email}`)
+      console.log(`❌ Credenciais inválidas: ${email}`)
       return null
     } catch (error) {
       console.error('❌ Erro na autenticação:', error)
@@ -193,25 +349,42 @@ class DatabaseAPI {
   }
   
   static async sincronizarDados(): Promise<void> {
-    // Sistema 100% offline - sem tentativas de conexão externa
-    console.log('🔄 Sistema offline ativo - dados salvos localmente')
-    
-    const dadosLocais = {
-      usuarios: this.carregarDados('usuarios'),
-      clientes: this.carregarDados('clientes'),
-      banners: this.carregarDados('banners'),
-      servidores: this.carregarDados('servidores')
+    try {
+      console.log('🔄 Iniciando sincronização com Supabase...')
+      
+      // Carregar dados do Supabase
+      const dadosSupabase = await SupabaseAPI.sincronizarTodos()
+      
+      // Converter e salvar localmente como backup
+      if (dadosSupabase.usuarios.length > 0) {
+        const usuariosLocais = dadosSupabase.usuarios.map(converterUsuarioDeSupabase)
+        localStorage.setItem('db_usuarios', JSON.stringify(usuariosLocais))
+      }
+      
+      if (dadosSupabase.clientes.length > 0) {
+        const clientesLocais = dadosSupabase.clientes.map(converterClienteDeSupabase)
+        localStorage.setItem('db_clientes', JSON.stringify(clientesLocais))
+      }
+      
+      if (dadosSupabase.servidores.length > 0) {
+        const servidoresLocais = dadosSupabase.servidores.map(converterServidorDeSupabase)
+        localStorage.setItem('db_servidores', JSON.stringify(servidoresLocais))
+      }
+      
+      if (dadosSupabase.banners.length > 0) {
+        const bannersLocais = dadosSupabase.banners.map(converterBannerDeSupabase)
+        localStorage.setItem('db_banners', JSON.stringify(bannersLocais))
+      }
+      
+      console.log('✅ Sincronização com Supabase concluída!', {
+        usuarios: dadosSupabase.usuarios.length,
+        clientes: dadosSupabase.clientes.length,
+        servidores: dadosSupabase.servidores.length,
+        banners: dadosSupabase.banners.length
+      })
+    } catch (error) {
+      console.error('❌ Erro na sincronização:', error)
     }
-    
-    console.log('✅ Sistema offline funcionando perfeitamente!', {
-      usuarios: dadosLocais.usuarios.length,
-      clientes: dadosLocais.clientes.length,
-      banners: dadosLocais.banners.length,
-      servidores: dadosLocais.servidores.length
-    })
-    
-    // Confirmar operação local sem erros de rede
-    console.log('🚀 Operação 100% local concluída com sucesso')
   }
 
   // Sistema de configurações persistentes
@@ -826,21 +999,28 @@ export default function ManagerPro() {
   const [resultadosBusca, setResultadosBusca] = useState<any[]>([])
   const [mostrarResultados, setMostrarResultados] = useState(false)
 
-  // Inicialização do sistema com banco de dados universal
+  // Inicialização do sistema com banco de dados universal + Supabase
   useEffect(() => {
     const inicializarSistema = async () => {
       try {
         setStatusConexao('sincronizando')
         
-        // Carregar dados do banco de dados universal
-        const usuariosSalvos = DatabaseAPI.carregarDados('usuarios')
-        const clientesSalvos = DatabaseAPI.carregarDados('clientes')
-        const bannersSalvos = DatabaseAPI.carregarDados('banners')
-        const servidoresSalvos = DatabaseAPI.carregarDados('servidores')
+        // Inicializar tabelas do Supabase
+        await initializeTables()
+        
+        // Sincronizar dados do Supabase
+        await DatabaseAPI.sincronizarDados()
+        
+        // Carregar dados (prioridade: Supabase > Local)
+        const dadosSupabase = await SupabaseAPI.sincronizarTodos()
+        
+        let usuariosFinais = dadosSupabase.usuarios.map(converterUsuarioDeSupabase)
+        let clientesFinais = dadosSupabase.clientes.map(converterClienteDeSupabase)
+        let servidoresFinais = dadosSupabase.servidores.map(converterServidorDeSupabase)
+        let bannersFinais = dadosSupabase.banners.map(converterBannerDeSupabase)
 
         // Criar usuário admin padrão se não existir
-        let usuariosFinais = usuariosSalvos
-        if (usuariosSalvos.length === 0) {
+        if (usuariosFinais.length === 0) {
           const adminPadrao: Usuario = {
             id: 'admin',
             nome: 'Administrador',
@@ -856,8 +1036,7 @@ export default function ManagerPro() {
         }
 
         // Dados de exemplo apenas se não houver clientes salvos
-        let clientesFinais = clientesSalvos
-        if (clientesSalvos.length === 0) {
+        if (clientesFinais.length === 0) {
           const clientesIniciais: Cliente[] = [
             {
               id: '1',
@@ -908,39 +1087,40 @@ export default function ManagerPro() {
         // Aplicar dados carregados
         setUsuarios(usuariosFinais)
         setClientes(clientesFinais)
-        setBanners(bannersSalvos)
-        setServidores(servidoresSalvos)
+        setServidores(servidoresFinais)
+        setBanners(bannersFinais)
 
         // Verificar se há usuário logado salvo (sessão persistente universal)
         const sessaoSalva = localStorage.getItem('iptv_sessao_universal')
         if (sessaoSalva) {
           const dadosSessao = JSON.parse(sessaoSalva)
           
-          // Verificar localmente
-          const usuarioValido = usuariosFinais.find(u => u.id === dadosSessao.id && u.ativo)
+          // Verificar no Supabase primeiro, depois localmente
+          let usuarioValido = null
+          try {
+            const usuarioSupabase = await SupabaseAPI.autenticar(dadosSessao.email, dadosSessao.senha || '')
+            if (usuarioSupabase) {
+              usuarioValido = converterUsuarioDeSupabase(usuarioSupabase)
+            }
+          } catch (error) {
+            console.log('Tentando autenticação local...')
+          }
+          
+          if (!usuarioValido) {
+            usuarioValido = usuariosFinais.find(u => u.id === dadosSessao.id && u.ativo)
+          }
           
           if (usuarioValido) {
-            const usuarioLogado: Usuario = {
-              id: usuarioValido.id,
-              nome: usuarioValido.nome,
-              email: usuarioValido.email,
-              senha: usuarioValido.senha,
-              tipo: usuarioValido.tipo || 'usuario',
-              ativo: usuarioValido.ativo,
-              dataCadastro: usuarioValido.dataCadastro,
-              ultimoAcesso: new Date().toISOString()
-            }
-            setUsuarioLogado(usuarioLogado)
+            setUsuarioLogado(usuarioValido)
             setMostrarLogin(false)
-            console.log('✅ Sessão local restaurada:', usuarioLogado.nome)
+            console.log('✅ Sessão restaurada:', usuarioValido.nome)
           } else {
-            // Limpar sessão inválida
             localStorage.removeItem('iptv_sessao_universal')
           }
         }
 
         setStatusConexao('online')
-        console.log('✅ Sistema inicializado com banco universal')
+        console.log('✅ Sistema inicializado com Supabase + Local')
       } catch (error) {
         console.error('❌ Erro na inicialização:', error)
         setStatusConexao('offline')
@@ -999,30 +1179,20 @@ export default function ManagerPro() {
       const usuarioAutenticado = await DatabaseAPI.autenticar(email, senha)
       
       if (usuarioAutenticado) {
-        const usuarioLogado: Usuario = {
-          id: usuarioAutenticado.id,
-          nome: usuarioAutenticado.nome,
-          email: usuarioAutenticado.email,
-          senha: usuarioAutenticado.senha,
-          tipo: usuarioAutenticado.tipo || 'usuario',
-          ativo: usuarioAutenticado.ativo,
-          dataCadastro: usuarioAutenticado.dataCadastro,
-          ultimoAcesso: new Date().toISOString()
-        }
-        
-        setUsuarioLogado(usuarioLogado)
+        setUsuarioLogado(usuarioAutenticado)
         setMostrarLogin(false)
         
         // Salvar sessão universal para funcionar em qualquer navegador
         const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         localStorage.setItem('iptv_sessao_universal', JSON.stringify({
-          id: usuarioLogado.id,
-          email: usuarioLogado.email,
+          id: usuarioAutenticado.id,
+          email: usuarioAutenticado.email,
+          senha: usuarioAutenticado.senha,
           sessionId: sessionId,
           timestamp: new Date().toISOString()
         }))
         
-        console.log('✅ Login realizado com sucesso:', usuarioLogado.nome)
+        console.log('✅ Login realizado com sucesso:', usuarioAutenticado.nome)
       } else {
         alert('Email ou senha incorretos, ou conta inativa!')
       }
@@ -1115,15 +1285,15 @@ export default function ManagerPro() {
     
     setClientes([...clientes, novoCliente])
     await DatabaseAPI.salvarDados('clientes', novoCliente)
-    console.log('✅ Cliente adicionado ao banco universal:', novoCliente.nome)
+    console.log('✅ Cliente adicionado ao Supabase:', novoCliente.nome)
   }
 
   const editarCliente = async (clienteEditado: Cliente) => {
     setClientes(clientes.map(cliente => 
       cliente.id === clienteEditado.id ? clienteEditado : cliente
     ))
-    await DatabaseAPI.atualizarDados('clientes', clienteEditado.id, clienteEditado)
-    console.log('✅ Cliente atualizado no banco universal:', clienteEditado.nome)
+    await DatabaseAPI.atualizarDados('clientes', clienteEditado.id, converterClienteParaSupabase(clienteEditado))
+    console.log('✅ Cliente atualizado no Supabase:', clienteEditado.nome)
   }
 
   const excluirCliente = async (clienteId: string) => {
@@ -1131,7 +1301,7 @@ export default function ManagerPro() {
       setClientes(clientes.filter(cliente => cliente.id !== clienteId))
       setPagamentos(pagamentos.filter(pagamento => pagamento.clienteId !== clienteId))
       await DatabaseAPI.excluirDados('clientes', clienteId)
-      console.log('✅ Cliente excluído do banco universal:', clienteId)
+      console.log('✅ Cliente excluído do Supabase:', clienteId)
     }
   }
 
@@ -1146,22 +1316,22 @@ export default function ManagerPro() {
     
     setServidores([...servidores, novoServidor])
     await DatabaseAPI.salvarDados('servidores', novoServidor)
-    console.log('✅ Servidor adicionado ao banco universal:', novoServidor.nome)
+    console.log('✅ Servidor adicionado ao Supabase:', novoServidor.nome)
   }
 
   const editarServidor = async (servidorEditado: Servidor) => {
     setServidores(servidores.map(servidor => 
       servidor.id === servidorEditado.id ? servidorEditado : servidor
     ))
-    await DatabaseAPI.atualizarDados('servidores', servidorEditado.id, servidorEditado)
-    console.log('✅ Servidor atualizado no banco universal:', servidorEditado.nome)
+    await DatabaseAPI.atualizarDados('servidores', servidorEditado.id, converterServidorParaSupabase(servidorEditado))
+    console.log('✅ Servidor atualizado no Supabase:', servidorEditado.nome)
   }
 
   const excluirServidor = async (servidorId: string) => {
     if (confirm('Tem certeza que deseja excluir este servidor? Esta ação não pode ser desfeita.')) {
       setServidores(servidores.filter(servidor => servidor.id !== servidorId))
       await DatabaseAPI.excluirDados('servidores', servidorId)
-      console.log('✅ Servidor excluído do banco universal:', servidorId)
+      console.log('✅ Servidor excluído do Supabase:', servidorId)
     }
   }
 
@@ -1176,14 +1346,14 @@ export default function ManagerPro() {
     
     setBanners([...banners, novoBanner])
     await DatabaseAPI.salvarDados('banners', novoBanner)
-    console.log('✅ Banner salvo no banco universal:', novoBanner.categoria)
+    console.log('✅ Banner salvo no Supabase:', novoBanner.categoria)
   }
 
   const excluirBanner = async (bannerId: string) => {
     if (confirm('Tem certeza que deseja excluir este banner?')) {
       setBanners(banners.filter(banner => banner.id !== bannerId))
       await DatabaseAPI.excluirDados('banners', bannerId)
-      console.log('✅ Banner excluído do banco universal:', bannerId)
+      console.log('✅ Banner excluído do Supabase:', bannerId)
     }
   }
 
@@ -1216,6 +1386,7 @@ export default function ManagerPro() {
       localStorage.setItem('iptv_sessao_universal', JSON.stringify({
         id: usuarioAtualizado.id,
         email: usuarioAtualizado.email,
+        senha: usuarioAtualizado.senha,
         sessionId: sessionId,
         timestamp: new Date().toISOString()
       }))
@@ -1250,7 +1421,7 @@ export default function ManagerPro() {
             usuarioAtualizado.tipo = 'usuario'
             break
         }
-        DatabaseAPI.atualizarDados('usuarios', usuarioId, usuarioAtualizado)
+        DatabaseAPI.atualizarDados('usuarios', usuarioId, converterUsuarioParaSupabase(usuarioAtualizado))
         return usuarioAtualizado
       }
       return usuario
@@ -1268,16 +1439,21 @@ export default function ManagerPro() {
     
     setUsuarios([...usuarios, novoUsuario])
     await DatabaseAPI.salvarDados('usuarios', novoUsuario)
-    console.log('✅ Novo usuário criado no banco universal:', novoUsuario.nome)
-    alert(`✅ Usuário criado com sucesso!\n\nLogin: ${novoUsuario.email}\nSenha: ${novoUsuario.senha}\n\nO usuário pode fazer login em qualquer navegador com essas credenciais.`)
+    console.log('✅ Novo usuário criado no Supabase:', novoUsuario.nome)
+    alert(`✅ Usuário criado com sucesso!
+
+Login: ${novoUsuario.email}
+Senha: ${novoUsuario.senha}
+
+O usuário pode fazer login em qualquer navegador com essas credenciais.`)
   }
 
   const editarUsuario = async (usuarioEditado: Usuario) => {
     setUsuarios(usuarios.map(usuario => 
       usuario.id === usuarioEditado.id ? usuarioEditado : usuario
     ))
-    await DatabaseAPI.atualizarDados('usuarios', usuarioEditado.id, usuarioEditado)
-    console.log('✅ Usuário atualizado no banco universal:', usuarioEditado.nome)
+    await DatabaseAPI.atualizarDados('usuarios', usuarioEditado.id, converterUsuarioParaSupabase(usuarioEditado))
+    console.log('✅ Usuário atualizado no Supabase:', usuarioEditado.nome)
   }
 
   const excluirUsuario = async (usuarioId: string) => {
@@ -1289,7 +1465,7 @@ export default function ManagerPro() {
     if (confirm('Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita.')) {
       setUsuarios(usuarios.filter(usuario => usuario.id !== usuarioId))
       await DatabaseAPI.excluirDados('usuarios', usuarioId)
-      console.log('✅ Usuário excluído do banco universal:', usuarioId)
+      console.log('✅ Usuário excluído do Supabase:', usuarioId)
     }
   }
 
@@ -1350,13 +1526,13 @@ export default function ManagerPro() {
                   {statusConexao === 'online' && (
                     <>
                       <Database className="w-3 h-3 inline mr-1" />
-                      Sistema Universal Online
+                      Sistema Supabase Online
                     </>
                   )}
                   {statusConexao === 'sincronizando' && (
                     <>
                       <Cloud className="w-3 h-3 inline mr-1 animate-spin" />
-                      Sincronizando...
+                      Sincronizando com Supabase...
                     </>
                   )}
                   {statusConexao === 'offline' && (
@@ -1406,7 +1582,7 @@ export default function ManagerPro() {
                   'bg-red-400'
                 }`}></div>
                 <span className="text-xs text-gray-400">
-                  {statusConexao === 'online' && 'Sistema Universal Ativo'}
+                  {statusConexao === 'online' && 'Sistema Supabase Ativo'}
                   {statusConexao === 'sincronizando' && 'Sincronizando...'}
                   {statusConexao === 'offline' && 'Modo offline'}
                 </span>
@@ -1560,7 +1736,7 @@ export default function ManagerPro() {
                             <DialogHeader>
                               <DialogTitle>Cadastrar Novo Cliente</DialogTitle>
                               <DialogDescription className="text-slate-300">
-                                Preencha os dados do cliente para cadastro no banco universal
+                                Preencha os dados do cliente para cadastro no Supabase
                               </DialogDescription>
                             </DialogHeader>
                             <NovoClienteForm onSubmit={adicionarCliente} onClose={() => setModalAberto(false)} />
@@ -1936,7 +2112,7 @@ export default function ManagerPro() {
                         <DialogHeader>
                           <DialogTitle>Cadastrar Novo Servidor</DialogTitle>
                           <DialogDescription className="text-slate-300">
-                            Preencha os dados do servidor para cadastro no banco universal
+                            Preencha os dados do servidor para cadastro no Supabase
                           </DialogDescription>
                         </DialogHeader>
                         <NovoServidorForm onSubmit={adicionarServidor} onClose={() => setModalServidor(false)} />
@@ -2145,7 +2321,7 @@ export default function ManagerPro() {
             <DialogHeader>
               <DialogTitle>Editar Cliente</DialogTitle>
               <DialogDescription className="text-slate-300">
-                Altere os dados do cliente (salvos no banco universal)
+                Altere os dados do cliente (salvos no Supabase)
               </DialogDescription>
             </DialogHeader>
             {clienteEditando && (
@@ -2171,7 +2347,7 @@ export default function ManagerPro() {
             <DialogHeader>
               <DialogTitle>Editar Servidor</DialogTitle>
               <DialogDescription className="text-slate-300">
-                Altere os dados do servidor (salvos no banco universal)
+                Altere os dados do servidor (salvos no Supabase)
               </DialogDescription>
             </DialogHeader>
             {servidorEditando && (
@@ -2197,7 +2373,7 @@ export default function ManagerPro() {
             <DialogHeader>
               <DialogTitle>Alterar Credenciais</DialogTitle>
               <DialogDescription className="text-slate-300">
-                Altere seu email e senha de acesso (salvo no banco universal para uso em qualquer navegador)
+                Altere seu email e senha de acesso (salvo no Supabase para uso em qualquer navegador)
               </DialogDescription>
             </DialogHeader>
             <AlterarCredenciaisForm 
@@ -2287,7 +2463,7 @@ export default function ManagerPro() {
             <DialogHeader>
               <DialogTitle>Editar Usuário</DialogTitle>
               <DialogDescription className="text-slate-300">
-                Altere os dados do usuário (salvos no banco universal)
+                Altere os dados do usuário (salvos no Supabase)
               </DialogDescription>
             </DialogHeader>
             {usuarioEditando && (
@@ -2377,7 +2553,7 @@ function LoginForm({ onLogin, carregando }: {
       </Button>
       
       <div className="text-center text-xs text-gray-400 mt-4 space-y-1">
-        <p>🔐 Sistema Universal - Funciona em qualquer navegador</p>
+        <p>🔐 Sistema Supabase - Funciona em qualquer navegador</p>
         <p>🌐 Suas credenciais são salvas no banco de dados</p>
       </div>
     </form>
@@ -2684,7 +2860,7 @@ function AlterarCredenciaisForm({ usuarioAtual, onSubmit, onClose }: {
       <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-3 mb-4">
         <div className="flex items-center gap-2 text-blue-200 text-sm">
           <Database className="w-4 h-4" />
-          <span>Suas novas credenciais serão salvas no banco universal e funcionarão em qualquer navegador</span>
+          <span>Suas novas credenciais serão salvas no Supabase e funcionarão em qualquer navegador</span>
         </div>
       </div>
       
@@ -2731,7 +2907,7 @@ function AlterarCredenciaisForm({ usuarioAtual, onSubmit, onClose }: {
         </Button>
         <Button type="submit" className="bg-purple-600 hover:bg-purple-700">
           <Database className="w-4 h-4 mr-2" />
-          Salvar no Banco Universal
+          Salvar no Supabase
         </Button>
       </div>
     </form>
@@ -2836,7 +3012,7 @@ function NovoClienteForm({ onSubmit, onClose }: {
         </Button>
         <Button type="submit" className="bg-purple-600 hover:bg-purple-700">
           <Database className="w-4 h-4 mr-2" />
-          Salvar no Banco Universal
+          Salvar no Supabase
         </Button>
       </div>
     </form>
@@ -2916,7 +3092,7 @@ function NovoServidorForm({ onSubmit, onClose }: {
         </Button>
         <Button type="submit" className="bg-purple-600 hover:bg-purple-700">
           <Server className="w-4 h-4 mr-2" />
-          Salvar no Banco Universal
+          Salvar no Supabase
         </Button>
       </div>
     </form>
@@ -2990,7 +3166,7 @@ function EditarServidorForm({ servidor, onSubmit, onClose }: {
         </Button>
         <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
           <Edit className="w-4 h-4 mr-2" />
-          Atualizar no Banco Universal
+          Atualizar no Supabase
         </Button>
       </div>
     </form>
@@ -3112,7 +3288,7 @@ function EditarClienteForm({ cliente, onSubmit, onClose }: {
         </Button>
         <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
           <Edit className="w-4 h-4 mr-2" />
-          Atualizar no Banco Universal
+          Atualizar no Supabase
         </Button>
       </div>
     </form>
@@ -3562,7 +3738,7 @@ function BannerForm({ onSubmit, onClose, usuarioLogado }: {
             </Button>
             <Button type="submit" className="bg-purple-600 hover:bg-purple-700">
               <Image className="w-4 h-4 mr-2" />
-              Salvar no Banco Universal
+              Salvar no Supabase
             </Button>
           </div>
         </form>
