@@ -170,15 +170,21 @@ class DatabaseAPI {
       // Sistema funciona 100% offline - verificar dados locais
       const usuarios = this.carregarDados('usuarios')
       
-      // Verificar usuários admin
-      const usuario = usuarios.find((u: Usuario) => u.email === email && u.senha === senha && u.ativo)
+      // Buscar qualquer usuário ativo com as credenciais fornecidas
+      const usuario = usuarios.find((u: Usuario) => 
+        u.email === email && 
+        u.senha === senha && 
+        u.ativo === true
+      )
+      
       if (usuario) {
+        // Atualizar último acesso
         await this.atualizarDados('usuarios', usuario.id, { ultimoAcesso: new Date().toISOString() })
-        console.log(`✅ Login local realizado: Admin ${usuario.nome}`)
+        console.log(`✅ Login realizado com sucesso: ${usuario.nome} (${usuario.tipo})`)
         return usuario
       }
       
-      console.log(`❌ Credenciais inválidas: ${email}`)
+      console.log(`❌ Credenciais inválidas ou usuário inativo: ${email}`)
       return null
     } catch (error) {
       console.error('❌ Erro na autenticação:', error)
@@ -798,6 +804,7 @@ export default function ManagerPro() {
   const [clienteSelecionado, setClienteSelecionado] = useState<Cliente | null>(null)
   const [clienteEditando, setClienteEditando] = useState<Cliente | null>(null)
   const [servidorEditando, setServidorEditando] = useState<Servidor | null>(null)
+  const [usuarioEditando, setUsuarioEditando] = useState<Usuario | null>(null)
   const [modalAberto, setModalAberto] = useState(false)
   const [modalEditarCliente, setModalEditarCliente] = useState(false)
   const [modalPagamento, setModalPagamento] = useState(false)
@@ -809,6 +816,7 @@ export default function ManagerPro() {
   const [modalEditarPlano, setModalEditarPlano] = useState(false)
   const [modalAlterarCredenciais, setModalAlterarCredenciais] = useState(false)
   const [modalCriarUsuario, setModalCriarUsuario] = useState(false)
+  const [modalEditarUsuario, setModalEditarUsuario] = useState(false)
   const [planoEditando, setPlanoEditando] = useState<Plano | null>(null)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
@@ -1262,6 +1270,27 @@ export default function ManagerPro() {
     await DatabaseAPI.salvarDados('usuarios', novoUsuario)
     console.log('✅ Novo usuário criado no banco universal:', novoUsuario.nome)
     alert(`✅ Usuário criado com sucesso!\n\nLogin: ${novoUsuario.email}\nSenha: ${novoUsuario.senha}\n\nO usuário pode fazer login em qualquer navegador com essas credenciais.`)
+  }
+
+  const editarUsuario = async (usuarioEditado: Usuario) => {
+    setUsuarios(usuarios.map(usuario => 
+      usuario.id === usuarioEditado.id ? usuarioEditado : usuario
+    ))
+    await DatabaseAPI.atualizarDados('usuarios', usuarioEditado.id, usuarioEditado)
+    console.log('✅ Usuário atualizado no banco universal:', usuarioEditado.nome)
+  }
+
+  const excluirUsuario = async (usuarioId: string) => {
+    if (usuarioId === usuarioLogado?.id) {
+      alert('Você não pode excluir sua própria conta!')
+      return
+    }
+    
+    if (confirm('Tem certeza que deseja excluir este usuário? Esta ação não pode ser desfeita.')) {
+      setUsuarios(usuarios.filter(usuario => usuario.id !== usuarioId))
+      await DatabaseAPI.excluirDados('usuarios', usuarioId)
+      console.log('✅ Usuário excluído do banco universal:', usuarioId)
+    }
   }
 
   const downloadBanner = (banner: Banner) => {
@@ -2222,6 +2251,11 @@ export default function ManagerPro() {
               <UsuariosManager 
                 usuarios={usuarios} 
                 onGerenciar={gerenciarUsuario}
+                onEditar={(usuario) => {
+                  setUsuarioEditando(usuario)
+                  setModalEditarUsuario(true)
+                }}
+                onExcluir={excluirUsuario}
                 usuarioAtual={usuarioLogado}
               />
             </DialogContent>
@@ -2244,6 +2278,32 @@ export default function ManagerPro() {
               }}
               onClose={() => setModalCriarUsuario(false)} 
             />
+          </DialogContent>
+        </Dialog>
+
+        {/* Modal de Editar Usuário */}
+        <Dialog open={modalEditarUsuario} onOpenChange={setModalEditarUsuario}>
+          <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
+            <DialogHeader>
+              <DialogTitle>Editar Usuário</DialogTitle>
+              <DialogDescription className="text-slate-300">
+                Altere os dados do usuário (salvos no banco universal)
+              </DialogDescription>
+            </DialogHeader>
+            {usuarioEditando && (
+              <EditarUsuarioForm 
+                usuario={usuarioEditando}
+                onSubmit={(usuarioEditado) => {
+                  editarUsuario(usuarioEditado)
+                  setModalEditarUsuario(false)
+                  setUsuarioEditando(null)
+                }}
+                onClose={() => {
+                  setModalEditarUsuario(false)
+                  setUsuarioEditando(null)
+                }}
+              />
+            )}
           </DialogContent>
         </Dialog>
       </div>
@@ -2455,6 +2515,136 @@ function CriarUsuarioForm({ onSubmit, onClose }: {
         <Button type="submit" className="bg-green-600 hover:bg-green-700">
           <UserPlus className="w-4 h-4 mr-2" />
           Criar Usuário
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+function EditarUsuarioForm({ usuario, onSubmit, onClose }: {
+  usuario: Usuario
+  onSubmit: (usuario: Usuario) => void
+  onClose: () => void
+}) {
+  const [formData, setFormData] = useState({
+    ...usuario,
+    confirmarSenha: usuario.senha
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (formData.senha !== formData.confirmarSenha) {
+      alert('As senhas não coincidem!')
+      return
+    }
+    
+    if (formData.senha.length < 6) {
+      alert('A senha deve ter pelo menos 6 caracteres!')
+      return
+    }
+    
+    onSubmit({
+      id: formData.id,
+      nome: formData.nome,
+      email: formData.email,
+      senha: formData.senha,
+      tipo: formData.tipo,
+      ativo: formData.ativo,
+      dataCadastro: formData.dataCadastro,
+      ultimoAcesso: formData.ultimoAcesso
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <Label htmlFor="nome" className="text-white">Nome Completo</Label>
+        <Input
+          id="nome"
+          value={formData.nome}
+          onChange={(e) => setFormData({...formData, nome: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="email" className="text-white">Email (Login)</Label>
+        <Input
+          id="email"
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({...formData, email: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="senha" className="text-white">Senha</Label>
+        <Input
+          id="senha"
+          type="password"
+          value={formData.senha}
+          onChange={(e) => setFormData({...formData, senha: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          placeholder="Mínimo 6 caracteres"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="confirmarSenha" className="text-white">Confirmar Senha</Label>
+        <Input
+          id="confirmarSenha"
+          type="password"
+          value={formData.confirmarSenha}
+          onChange={(e) => setFormData({...formData, confirmarSenha: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="tipo" className="text-white">Tipo de Usuário</Label>
+        <Select value={formData.tipo} onValueChange={(value: Usuario['tipo']) => setFormData({...formData, tipo: value})}>
+          <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-800 border-slate-700">
+            <SelectItem value="usuario">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Usuário
+              </div>
+            </SelectItem>
+            <SelectItem value="admin">
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4" />
+                Administrador
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="ativo"
+          checked={formData.ativo}
+          onCheckedChange={(checked) => setFormData({...formData, ativo: checked as boolean})}
+        />
+        <Label htmlFor="ativo" className="text-white">Usuário ativo</Label>
+      </div>
+      
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
+          <Edit className="w-4 h-4 mr-2" />
+          Atualizar Usuário
         </Button>
       </div>
     </form>
@@ -3549,9 +3739,11 @@ function ConfigForm({ config, onSubmit, onClose }: {
   )
 }
 
-function UsuariosManager({ usuarios, onGerenciar, usuarioAtual }: {
+function UsuariosManager({ usuarios, onGerenciar, onEditar, onExcluir, usuarioAtual }: {
   usuarios: Usuario[]
   onGerenciar: (usuarioId: string, acao: 'ativar' | 'desativar' | 'promover' | 'rebaixar') => void
+  onEditar: (usuario: Usuario) => void
+  onExcluir: (usuarioId: string) => void
   usuarioAtual: Usuario | null
 }) {
   return (
@@ -3588,6 +3780,15 @@ function UsuariosManager({ usuarios, onGerenciar, usuarioAtual }: {
                     <Button
                       size="sm"
                       variant="outline"
+                      onClick={() => onEditar(usuario)}
+                      className="border-blue-500/50 text-blue-400 hover:bg-blue-500/20"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => onGerenciar(usuario.id, usuario.ativo ? 'desativar' : 'ativar')}
                       className={usuario.ativo ? 'border-red-500/50 text-red-400' : 'border-green-500/50 text-green-400'}
                     >
@@ -3601,6 +3802,15 @@ function UsuariosManager({ usuarios, onGerenciar, usuarioAtual }: {
                       className="border-yellow-500/50 text-yellow-400"
                     >
                       {usuario.tipo === 'admin' ? 'Rebaixar' : 'Promover'}
+                    </Button>
+                    
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onExcluir(usuario.id)}
+                      className="border-red-500/50 text-red-400 hover:bg-red-500/20"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 )}
