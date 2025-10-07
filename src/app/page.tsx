@@ -808,6 +808,7 @@ export default function ManagerPro() {
   const [modalUsuarios, setModalUsuarios] = useState(false)
   const [modalEditarPlano, setModalEditarPlano] = useState(false)
   const [modalAlterarCredenciais, setModalAlterarCredenciais] = useState(false)
+  const [modalCriarUsuario, setModalCriarUsuario] = useState(false)
   const [planoEditando, setPlanoEditando] = useState<Plano | null>(null)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
@@ -1247,6 +1248,20 @@ export default function ManagerPro() {
       return usuario
     })
     setUsuarios(usuariosAtualizados)
+  }
+
+  const criarNovoUsuario = async (dadosUsuario: Omit<Usuario, 'id' | 'dataCadastro' | 'ultimoAcesso'>) => {
+    const novoUsuario: Usuario = {
+      ...dadosUsuario,
+      id: Date.now().toString(),
+      dataCadastro: new Date().toISOString(),
+      ultimoAcesso: new Date().toISOString()
+    }
+    
+    setUsuarios([...usuarios, novoUsuario])
+    await DatabaseAPI.salvarDados('usuarios', novoUsuario)
+    console.log('✅ Novo usuário criado no banco universal:', novoUsuario.nome)
+    alert(`✅ Usuário criado com sucesso!\n\nLogin: ${novoUsuario.email}\nSenha: ${novoUsuario.senha}\n\nO usuário pode fazer login em qualquer navegador com essas credenciais.`)
   }
 
   const downloadBanner = (banner: Banner) => {
@@ -2188,10 +2203,21 @@ export default function ManagerPro() {
           <Dialog open={modalUsuarios} onOpenChange={setModalUsuarios}>
             <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-4xl">
               <DialogHeader>
-                <DialogTitle>Gerenciar Usuários</DialogTitle>
-                <DialogDescription className="text-slate-300">
-                  Controle total dos usuários do sistema
-                </DialogDescription>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <DialogTitle>Gerenciar Usuários</DialogTitle>
+                    <DialogDescription className="text-slate-300">
+                      Controle total dos usuários do sistema - Crie novos usuários com login e senha funcionais
+                    </DialogDescription>
+                  </div>
+                  <Button
+                    onClick={() => setModalCriarUsuario(true)}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Criar Usuário
+                  </Button>
+                </div>
               </DialogHeader>
               <UsuariosManager 
                 usuarios={usuarios} 
@@ -2201,6 +2227,25 @@ export default function ManagerPro() {
             </DialogContent>
           </Dialog>
         )}
+
+        {/* Modal de Criar Usuário */}
+        <Dialog open={modalCriarUsuario} onOpenChange={setModalCriarUsuario}>
+          <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
+            <DialogHeader>
+              <DialogTitle>Criar Novo Usuário</DialogTitle>
+              <DialogDescription className="text-slate-300">
+                Crie um novo usuário com login e senha funcionais para qualquer navegador
+              </DialogDescription>
+            </DialogHeader>
+            <CriarUsuarioForm 
+              onSubmit={(dadosUsuario) => {
+                criarNovoUsuario(dadosUsuario)
+                setModalCriarUsuario(false)
+              }}
+              onClose={() => setModalCriarUsuario(false)} 
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )
@@ -2274,6 +2319,143 @@ function LoginForm({ onLogin, carregando }: {
       <div className="text-center text-xs text-gray-400 mt-4 space-y-1">
         <p>🔐 Sistema Universal - Funciona em qualquer navegador</p>
         <p>🌐 Suas credenciais são salvas no banco de dados</p>
+      </div>
+    </form>
+  )
+}
+
+function CriarUsuarioForm({ onSubmit, onClose }: {
+  onSubmit: (usuario: Omit<Usuario, 'id' | 'dataCadastro' | 'ultimoAcesso'>) => void
+  onClose: () => void
+}) {
+  const [formData, setFormData] = useState({
+    nome: '',
+    email: '',
+    senha: '',
+    confirmarSenha: '',
+    tipo: 'usuario' as Usuario['tipo'],
+    ativo: true
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (formData.senha !== formData.confirmarSenha) {
+      alert('As senhas não coincidem!')
+      return
+    }
+    
+    if (formData.senha.length < 6) {
+      alert('A senha deve ter pelo menos 6 caracteres!')
+      return
+    }
+    
+    onSubmit({
+      nome: formData.nome,
+      email: formData.email,
+      senha: formData.senha,
+      tipo: formData.tipo,
+      ativo: formData.ativo
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-3 mb-4">
+        <div className="flex items-center gap-2 text-green-200 text-sm">
+          <UserPlus className="w-4 h-4" />
+          <span>O usuário poderá fazer login em qualquer navegador com as credenciais criadas</span>
+        </div>
+      </div>
+      
+      <div>
+        <Label htmlFor="nome" className="text-white">Nome Completo</Label>
+        <Input
+          id="nome"
+          value={formData.nome}
+          onChange={(e) => setFormData({...formData, nome: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="email" className="text-white">Email (Login)</Label>
+        <Input
+          id="email"
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({...formData, email: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="senha" className="text-white">Senha</Label>
+        <Input
+          id="senha"
+          type="password"
+          value={formData.senha}
+          onChange={(e) => setFormData({...formData, senha: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          placeholder="Mínimo 6 caracteres"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="confirmarSenha" className="text-white">Confirmar Senha</Label>
+        <Input
+          id="confirmarSenha"
+          type="password"
+          value={formData.confirmarSenha}
+          onChange={(e) => setFormData({...formData, confirmarSenha: e.target.value})}
+          className="bg-slate-700 border-slate-600 text-white"
+          required
+        />
+      </div>
+      
+      <div>
+        <Label htmlFor="tipo" className="text-white">Tipo de Usuário</Label>
+        <Select value={formData.tipo} onValueChange={(value: Usuario['tipo']) => setFormData({...formData, tipo: value})}>
+          <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-800 border-slate-700">
+            <SelectItem value="usuario">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Usuário
+              </div>
+            </SelectItem>
+            <SelectItem value="admin">
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4" />
+                Administrador
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="ativo"
+          checked={formData.ativo}
+          onCheckedChange={(checked) => setFormData({...formData, ativo: checked as boolean})}
+        />
+        <Label htmlFor="ativo" className="text-white">Usuário ativo</Label>
+      </div>
+      
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button type="submit" className="bg-green-600 hover:bg-green-700">
+          <UserPlus className="w-4 h-4 mr-2" />
+          Criar Usuário
+        </Button>
       </div>
     </form>
   )
@@ -3374,6 +3556,13 @@ function UsuariosManager({ usuarios, onGerenciar, usuarioAtual }: {
 }) {
   return (
     <div className="space-y-4">
+      <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-3 mb-4">
+        <div className="flex items-center gap-2 text-blue-200 text-sm">
+          <UserPlus className="w-4 h-4" />
+          <span>Todos os usuários criados podem fazer login em qualquer navegador com suas credenciais</span>
+        </div>
+      </div>
+      
       <div className="grid gap-4">
         {usuarios.map((usuario) => (
           <Card key={usuario.id} className="bg-[#87CEEB]/5 border-white/10">
